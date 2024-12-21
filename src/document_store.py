@@ -34,3 +34,18 @@ class DocumentStore:
         with open(file_path, 'wb') as f:
             f.write(file_data)
         return Path(file_path)
+    
+    def remove_pdf(self, filename: str) -> bool:
+        """Remove a PDF file from storage"""
+        preloaded_path = os.path.join(self.preloaded_path, filename)
+        uploaded_path = os.path.join(self.uploaded_path, filename)
+        
+        removed = False
+        if os.path.exists(uploaded_path):
+            os.remove(uploaded_path)
+            removed = True
+        elif os.path.exists(preloaded_path):
+            os.remove(preloaded_path)
+            removed = True
+        
+        return removed

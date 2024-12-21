@@ -64,10 +64,20 @@ def main():
                 st.session_state.rag.process_pdf(file_path)
                 st.success(f"Processed: {file.name}")
         
-        # Show loaded documents
+        # Show loaded documents with remove buttons
         st.subheader("Loaded Documents")
         for pdf in st.session_state.rag.document_store.get_all_pdfs():
-            st.text(pdf.name)
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.text(pdf.name)
+            with col2:
+                if st.button("🗑️", key=f"remove_{pdf.name}", help="Remove this document"):
+                    # First remove from RAG system
+                    st.session_state.rag.remove_document(pdf.name)
+                    # Then remove the file
+                    if st.session_state.rag.document_store.remove_pdf(pdf.name):
+                        st.session_state.pop('messages', None)
+                        st.rerun()
     
     # Main chat interface
     if 'messages' not in st.session_state:

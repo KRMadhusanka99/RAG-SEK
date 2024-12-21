@@ -73,19 +73,17 @@ class EnhancedRAG:
         self._update_index()
     
     def chat(self, user_input: str, k: int = 3) -> Tuple[str, List[SourceDocument]]:
-        # Add user message to history
         self.chat_history.append(ChatMessage(
             role="user",
             content=user_input,
             timestamp=time.time()
         ))
         
-        # Get relevant documents
         relevant_docs = self._get_relevant_documents(user_input, k)
         
-        # If no relevant documents found, return early
-        if not relevant_docs:
-            answer = "I apologize, but I don't have any relevant information in the provided documents to answer your question accurately."
+        # Stricter check for relevant documents
+        if not relevant_docs or all(doc.relevance_score < 0.7 for doc in relevant_docs):
+            answer = "I don't have enough information in the provided documents to answer this question."
             self.chat_history.append(ChatMessage(
                 role="assistant",
                 content=answer,
@@ -93,29 +91,28 @@ class EnhancedRAG:
             ))
             return answer, []
         
-        # Create context from relevant documents
         context = self._create_context(relevant_docs)
         
-        # Generate response
         response = self.client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
                 {
                     "role": "system", 
-                    "content": """You are a strict Q&A assistant that ONLY answers questions based on the provided document context.
-                    
-                    Rules:
-                    1. NEVER provide information that is not explicitly present in the given context
-                    2. If the context doesn't contain enough information, respond with EXACTLY: "I don't have enough information in the provided documents to answer this question."
-                    3. Do not use any external knowledge
-                    4. Always cite the specific document and page number for every piece of information
-                    5. If the question is not about software engineering or the provided documents, respond with: "I can only answer questions related to software engineering based on the provided documents."
+                    "content": """You are a document-based Q&A system that MUST follow these rules strictly:
+
+                    1. ONLY use information explicitly present in the provided context
+                    2. If the exact answer is not in the context, respond with EXACTLY: "I don't have enough information in the provided documents to answer this question."
+                    3. Do not make assumptions or use external knowledge
+                    4. Every statement must be directly supported by the context
+                    5. Always cite the specific document and page number in this format: [Document: X, Page: Y]
+                    6. If the question is not about the content in the documents, respond with: "I can only answer questions about the content in the provided documents."
+                    7. Do not try to be helpful by providing related or general information
+                    8. If the context is only partially relevant, still respond with "I don't have enough information..."
                     """
                 },
-                *[{"role": msg.role, "content": msg.content} for msg in self.chat_history[-5:]],
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_input}"}
             ],
-            temperature=0.1  # Lower temperature for more focused responses
+            temperature=0.0  # Set to 0 for most deterministic responses
         )
         
         answer = response.choices[0].message.content
@@ -203,3 +200,28 @@ class EnhancedRAG:
                 f"Content: {doc.content}\n"
             )
         return "\n".join(context_parts)
+    
+    def remove_document(self, filename: str) -> bool:
+        """Remove document and its embeddings from the system"""
+        # Find all indices to remove
+        indices_to_remove = [
+            i for i, meta in enumerate(self.metadata) 
+            if meta.file_name == filename
+        ]
+        
+        if not indices_to_remove:
+            return False
+        
+        # Remove from all lists in reverse order to maintain correct indices
+        for idx in sorted(indices_to_remove, reverse=True):
+            del self.documents[idx]
+            del self.embeddings[idx]
+            del self.metadata[idx]
+        
+        # Rebuild the FAISS index if we have remaining documents
+        if self.embeddings:
+            self._update_index()
+        else:
+            self.index = None
+        
+        return True
