@@ -33,7 +33,7 @@ class EnhancedRAG:
         self.metadata = []
         self.chat_history: List[ChatMessage] = []
         
-    def process_pdf(self, pdf_path: Path, chunk_size: int = 500):
+    def process_pdf(self, pdf_path: Path, chunk_size: int = 300):
         chunks_to_process = []
         with open(pdf_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
@@ -81,8 +81,7 @@ class EnhancedRAG:
         
         relevant_docs = self._get_relevant_documents(user_input, k)
         
-        # Stricter check for relevant documents
-        if not relevant_docs or all(doc.relevance_score < 0.7 for doc in relevant_docs):
+        if not relevant_docs:
             answer = "I don't have enough information in the provided documents to answer this question."
             self.chat_history.append(ChatMessage(
                 role="assistant",
@@ -98,21 +97,18 @@ class EnhancedRAG:
             messages=[
                 {
                     "role": "system", 
-                    "content": """You are a document-based Q&A system that MUST follow these rules strictly:
-
-                    1. ONLY use information explicitly present in the provided context
-                    2. If the exact answer is not in the context, respond with EXACTLY: "I don't have enough information in the provided documents to answer this question."
-                    3. Do not make assumptions or use external knowledge
-                    4. Every statement must be directly supported by the context
-                    5. Always cite the specific document and page number in this format: [Document: X, Page: Y]
-                    6. If the question is not about the content in the documents, respond with: "I can only answer questions about the content in the provided documents."
-                    7. Do not try to be helpful by providing related or general information
-                    8. If the context is only partially relevant, still respond with "I don't have enough information..."
+                    "content": """You are a helpful assistant. Always provide accurate information based on the given context and cite your sources. When answering:
+                    1. Use information directly from the provided context
+                    2. Cite sources using format: [Document: X, Page: Y]
+                    3. Combine information from multiple sources when relevant
+                    4. If information is partial, provide what's available and explain any limitations
+                    5. Maintain accuracy while being helpful
                     """
                 },
+                *[{"role": msg.role, "content": msg.content} for msg in self.chat_history[-5:]],
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_input}"}
             ],
-            temperature=0.0  # Set to 0 for most deterministic responses
+            temperature=0.3  # Lower temperature for more consistent responses
         )
         
         answer = response.choices[0].message.content
@@ -177,19 +173,14 @@ class EnhancedRAG:
         
         D, I = self.index.search(query_embedding_array, k)
         
-        # Add relevance threshold (0.6 similarity score)
-        relevant_docs = []
-        for idx, i in enumerate(I[0]):
-            similarity = 1 - D[0][idx]
-            if similarity >= 0.6:  # Only include if similarity is high enough
-                relevant_docs.append(
-                    SourceDocument(
-                        content=self.documents[i],
-                        metadata=self.metadata[i],
-                        relevance_score=similarity
-                    )
-                )
-        return relevant_docs
+        return [
+            SourceDocument(
+                content=self.documents[i],
+                metadata=self.metadata[i],
+                relevance_score=1 - D[0][idx]  # Convert distance to similarity
+            )
+            for idx, i in enumerate(I[0])
+        ]
     
     def _create_context(self, relevant_docs: List[SourceDocument]) -> str:
         """Create context from relevant documents"""
