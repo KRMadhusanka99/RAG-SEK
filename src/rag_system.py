@@ -83,17 +83,39 @@ class EnhancedRAG:
         # Get relevant documents
         relevant_docs = self._get_relevant_documents(user_input, k)
         
-        # Create context from relevant documents and chat history
+        # If no relevant documents found, return early
+        if not relevant_docs:
+            answer = "I apologize, but I don't have any relevant information in the provided documents to answer your question accurately."
+            self.chat_history.append(ChatMessage(
+                role="assistant",
+                content=answer,
+                timestamp=time.time()
+            ))
+            return answer, []
+        
+        # Create context from relevant documents
         context = self._create_context(relevant_docs)
         
         # Generate response
         response = self.client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant. Always provide accurate information based on the given context and cite your sources."},
+                {
+                    "role": "system", 
+                    "content": """You are a strict Q&A assistant that ONLY answers questions based on the provided document context.
+                    
+                    Rules:
+                    1. NEVER provide information that is not explicitly present in the given context
+                    2. If the context doesn't contain enough information, respond with EXACTLY: "I don't have enough information in the provided documents to answer this question."
+                    3. Do not use any external knowledge
+                    4. Always cite the specific document and page number for every piece of information
+                    5. If the question is not about software engineering or the provided documents, respond with: "I can only answer questions related to software engineering based on the provided documents."
+                    """
+                },
                 *[{"role": msg.role, "content": msg.content} for msg in self.chat_history[-5:]],
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_input}"}
-            ]
+            ],
+            temperature=0.1  # Lower temperature for more focused responses
         )
         
         answer = response.choices[0].message.content
@@ -158,14 +180,19 @@ class EnhancedRAG:
         
         D, I = self.index.search(query_embedding_array, k)
         
-        return [
-            SourceDocument(
-                content=self.documents[i],
-                metadata=self.metadata[i],
-                relevance_score=1 - D[0][idx]  # Convert distance to similarity
-            )
-            for idx, i in enumerate(I[0])
-        ]
+        # Add relevance threshold (0.6 similarity score)
+        relevant_docs = []
+        for idx, i in enumerate(I[0]):
+            similarity = 1 - D[0][idx]
+            if similarity >= 0.6:  # Only include if similarity is high enough
+                relevant_docs.append(
+                    SourceDocument(
+                        content=self.documents[i],
+                        metadata=self.metadata[i],
+                        relevance_score=similarity
+                    )
+                )
+        return relevant_docs
     
     def _create_context(self, relevant_docs: List[SourceDocument]) -> str:
         """Create context from relevant documents"""
