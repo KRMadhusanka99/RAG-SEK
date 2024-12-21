@@ -1,0 +1,24 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Documents
+documents/uploaded/*
+!documents/uploaded/.gitkeep
+
+# Keep preloaded documents
+!documents/preloaded/
+!documents/preloaded/*.pdf
+
+# Keep assets
+!assets/
+!assets/*.png
+!assets/*.jpg
