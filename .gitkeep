@@ -1,0 +1,3 @@
+# Create .gitkeep files in both directories
+touch documents/uploaded/.gitkeep
+touch documents/preloaded/.gitkeep

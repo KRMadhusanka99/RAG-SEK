@@ -17,6 +17,7 @@ documents/uploaded/*
 # Keep preloaded documents
 !documents/preloaded/
 !documents/preloaded/*.pdf
+!documents/preloaded/.gitkeep
 
 # Keep assets
 !assets/
