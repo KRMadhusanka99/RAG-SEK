@@ -33,7 +33,7 @@ class EnhancedRAG:
         self.metadata = []
         self.chat_history: List[ChatMessage] = []
         
-    def process_pdf(self, pdf_path: Path, chunk_size: int = 500):
+    def process_pdf(self, pdf_path: Path, chunk_size: int = 300):
         chunks_to_process = []
         with open(pdf_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
@@ -73,27 +73,42 @@ class EnhancedRAG:
         self._update_index()
     
     def chat(self, user_input: str, k: int = 3) -> Tuple[str, List[SourceDocument]]:
-        # Add user message to history
         self.chat_history.append(ChatMessage(
             role="user",
             content=user_input,
             timestamp=time.time()
         ))
         
-        # Get relevant documents
         relevant_docs = self._get_relevant_documents(user_input, k)
         
-        # Create context from relevant documents and chat history
+        if not relevant_docs:
+            answer = "I don't have enough information in the provided documents to answer this question."
+            self.chat_history.append(ChatMessage(
+                role="assistant",
+                content=answer,
+                timestamp=time.time()
+            ))
+            return answer, []
+        
         context = self._create_context(relevant_docs)
         
-        # Generate response
         response = self.client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant. Always provide accurate information based on the given context and cite your sources."},
+                {
+                    "role": "system", 
+                    "content": """You are a helpful assistant. Always provide accurate information based on the given context and cite your sources. When answering:
+                    1. Use information directly from the provided context
+                    2. Cite sources using format: [Document: X, Page: Y]
+                    3. Combine information from multiple sources when relevant
+                    4. If information is partial, provide what's available and explain any limitations
+                    5. Maintain accuracy while being helpful
+                    """
+                },
                 *[{"role": msg.role, "content": msg.content} for msg in self.chat_history[-5:]],
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {user_input}"}
-            ]
+            ],
+            temperature=0.3  # Lower temperature for more consistent responses
         )
         
         answer = response.choices[0].message.content
@@ -176,3 +191,28 @@ class EnhancedRAG:
                 f"Content: {doc.content}\n"
             )
         return "\n".join(context_parts)
+    
+    def remove_document(self, filename: str) -> bool:
+        """Remove document and its embeddings from the system"""
+        # Find all indices to remove
+        indices_to_remove = [
+            i for i, meta in enumerate(self.metadata) 
+            if meta.file_name == filename
+        ]
+        
+        if not indices_to_remove:
+            return False
+        
+        # Remove from all lists in reverse order to maintain correct indices
+        for idx in sorted(indices_to_remove, reverse=True):
+            del self.documents[idx]
+            del self.embeddings[idx]
+            del self.metadata[idx]
+        
+        # Rebuild the FAISS index if we have remaining documents
+        if self.embeddings:
+            self._update_index()
+        else:
+            self.index = None
+        
+        return True
