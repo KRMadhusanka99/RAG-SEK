@@ -27,6 +27,7 @@ class EnhancedRAG:
     def __init__(self, api_key: str, document_store: DocumentStore):
         self.client = OpenAI(api_key=api_key)
         self.document_store = document_store
+        self.chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
         self.index = None
         self.documents = []
         self.embeddings = []
@@ -93,7 +94,7 @@ class EnhancedRAG:
         context = self._create_context(relevant_docs)
         
         response = self.client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=self.chat_model,
             messages=[
                 {
                     "role": "system", 
